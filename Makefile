@@ -1,7 +1,7 @@
 TARGET = read_bam
 LIBS = -lm -lbam -lz -lpthread
 CC = gcc
-CFLAGS = -g -Wall -std=c99 -O2
+CFLAGS = -g -Wall -std=c99 # -O2
 INCLUDES = -I../samtools
 
 .PHONY: clean all default
