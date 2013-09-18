@@ -79,16 +79,14 @@ int init_bins(const bam_header_t *h, chrom_meta **cm, const size_t cm_len, const
     } else {
       cm[i] = malloc(sizeof(chrom_meta));
       cm[i]->len = cur->len / bin_size;
-      assert(cm[i]->len < 3000);
-      if (cur->len % 2 != 0) {
+      if (cur->len % bin_size != 0) {
         cm[i]->len++;
       }
-      
+      printf("%s:\t%lu\n", cur->name, cm[i]->len);
       cm[i]->bins = malloc(sizeof(float) * cm[i]->len);
       strncpy(cm[i]->name, cur->name, BUF_SIZE);
     }
   }
-  
   return i;
 }
 
@@ -98,21 +96,17 @@ int read_bam(samfile_t *fp, const size_t bin_size, chrom_meta **cm, const size_t
   
   while (samread(fp, b) >= 0) {
     const bam1_core_t *c = &b->core;
-    if (!(c->flag & 0x4) && cm[c->tid] != NULL) {
+    if (!(c->flag & 0x4 || cm[c->tid] == NULL || c->pos == 0)) {
       start = c->pos - 1; /* bam 1-based, bed is 0-based*/
       sidx = start / bin_size;
       cov = MIN(c->l_qseq, bin_size - start % bin_size);
       if (cov == c->l_qseq) {
-        /* printf("%s [%lu] -> %d\n", cm[c->tid].name, sidx, 1); */
         cm[c->tid]->bins[sidx] += 1;
       } else {
         float r = cov / (float)c->l_qseq;
-        /* printf("HOLA %d %f\n", bin_size, cov, r); */
-        /* printf("%s [%lu] -> %.2f\n", cm[c->tid].name, sidx, r); */
         cm[c->tid]->bins[sidx] += r;
-        cm[c->tid]->bins[sidx] += 1 - r;
+        cm[c->tid]->bins[sidx + 1] += 1 - r;
       }
-      //printf("%s\t%lu\t%lu\n", cm[c->tid].name, start, end);
     }
   }
   bam_destroy1(b);
