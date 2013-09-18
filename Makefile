@@ -2,7 +2,7 @@ TARGET = read_bam
 LIBS = -lm -lbam -lz -lpthread
 CC = gcc
 CFLAGS = -g -Wall -std=c99 # -O2
-INCLUDES = -I../samtools
+INCLUDES = -I samtools
 
 .PHONY: clean all default
 
@@ -18,8 +18,8 @@ all: default
 # $(TARGET): $(OBJECTS)
 # 	$(CC) $(OBJECTS) $(INCLUDES) -Wall $(LIBS) -o $@
 
-read_bam: ../samtools/libbam.a read_bam.c
-	$(CC) $(CFLAGS) -L../samtools $(INCLUDES) read_bam.c $(LIBS) -o $@
+read_bam: samtools/libbam.a read_bam.c
+	$(CC) $(CFLAGS) -Lsamtools $(INCLUDES) read_bam.c $(LIBS) -o $@
 
 clean:
 	-rm -f *.o
