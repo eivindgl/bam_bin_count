@@ -16,4 +16,5 @@
 *.exe
 *.out
 *.app
-read_bam
+cabam
+test.bed

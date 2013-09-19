@@ -11,7 +11,7 @@
 
 typedef struct {
   char name[BUF_SIZE];
-  float *bins;
+  double *bins;
   size_t len;
 } chrom_meta;
 
@@ -82,36 +82,72 @@ int init_bins(const bam_header_t *h, chrom_meta **cm, const size_t cm_len, const
       if (cur->len % bin_size != 0) {
         cm[i]->len++;
       }
-      printf("%s:\t%lu\n", cur->name, cm[i]->len);
-      cm[i]->bins = malloc(sizeof(float) * cm[i]->len);
+      cm[i]->bins = calloc(sizeof(double), cm[i]->len);
       strncpy(cm[i]->name, cur->name, BUF_SIZE);
     }
   }
   return i;
 }
 
-int read_bam(samfile_t *fp, const size_t bin_size, chrom_meta **cm, const size_t cm_len) {
+/* Returns the number of aligned reads read
+ */
+size_t read_bam(samfile_t *fp, const size_t bin_size, chrom_meta **cm, const size_t cm_len) {
   bam1_t *b = bam_init1();
   size_t start, cov, sidx;
-  
+  size_t nreads = 0;
+#ifdef DEBUG
+  fprintf(stderr, "checking that count array is zero prior to start: ");
+  for (int j =0; j < cm_len; j++) {
+    if (cm[j] != NULL) {
+      for (int i = 0; i < cm[j]->len; i++) {
+        assert(cm[j]->bins[i] == 0.0);
+      }
+    }
+  }
+  fprintf(stderr, "ok.\n");
+#endif
   while (samread(fp, b) >= 0) {
     const bam1_core_t *c = &b->core;
     if (!(c->flag & 0x4 || cm[c->tid] == NULL || c->pos == 0)) {
+      nreads++;
       start = c->pos - 1; /* bam 1-based, bed is 0-based*/
       sidx = start / bin_size;
       cov = MIN(c->l_qseq, bin_size - start % bin_size);
       if (cov == c->l_qseq) {
-        cm[c->tid]->bins[sidx] += 1;
+        cm[c->tid]->bins[sidx]++;
       } else {
-        float r = cov / (float)c->l_qseq;
+        double r = cov / (double)c->l_qseq;
         cm[c->tid]->bins[sidx] += r;
-        cm[c->tid]->bins[sidx + 1] += 1 - r;
+        cm[c->tid]->bins[sidx + 1] += (1 - r);
+#ifdef DEBUG
+        assert(r >= 0.0 && r <= 1.0);
+        assert(cm[c->tid]->len > (sidx + 1));
+        //assert(cm[c->tid]->bins[sidx] < 100000);
+        //assert(cm[c->tid]->bins[sidx + 1] < 100000);
+#endif
       }
     }
   }
   bam_destroy1(b);
+#ifdef DEBUG
+  
 
-  return 0;
+  double sum_reads = 0;
+  fprintf(stderr, "checking that count array is below 10M after: ");
+  for (int j =0; j < cm_len; j++) {
+    if (cm[j] != NULL) {
+      for (int i = 0; i < cm[j]->len; i++) {
+        assert(cm[j]->bins[i] < 10000000);
+        sum_reads += cm[j]->bins[i];
+      }
+    }
+  }
+  fprintf(stderr, "ok.\n");
+  fprintf(stderr, "bam file has  %lu valid reads.\n", nreads);
+  fprintf(stderr, "matrix sum is %.2f.\n", sum_reads);
+  assert(abs(nreads - sum_reads) < 5);
+#endif
+  return nreads;
 }
 
 void free_chrom_meta(chrom_meta **cm, size_t cm_len) {
@@ -123,6 +159,12 @@ void free_chrom_meta(chrom_meta **cm, size_t cm_len) {
       }
     }
   free(cm);
+}
+
+int write_entry(FILE *fp, const char *name, size_t start, size_t end,
+                double ip, double input) {
+  return fprintf(fp, "%s\t%lu\t%lu\t%f\t%f\n",
+                 name, start, end, ip, input);
 }
 
 int write_bed(const char *fname, 
@@ -140,9 +182,8 @@ int write_bed(const char *fname,
     chrom_meta *input_chrom = find_chrom_meta(input, input_len, ip[i]->name);
 
     for (int j=0; j < ip[i]->len; j++) {
-      float input_cnt = input_chrom == NULL ? 0 : input_chrom->bins[j];
-      fprintf(fp, "%s\t%lu\t%lu\t%f\t%f\n", ip[i]->name,
-              j * bin_size, (j + 1) * bin_size,
+      double input_cnt = input_chrom == NULL ? 0 : input_chrom->bins[j];
+      write_entry(fp, ip[i]->name, j * bin_size, (j + 1) * bin_size,
               ip[i]->bins[j], input_cnt);
     }
   }
@@ -158,9 +199,8 @@ int write_bed(const char *fname,
       continue;
     }
     for (int j=0; j < input[i]->len; j++) {
-      fprintf(fp, "%s\t%lu\t%lu\t%f\t%f\n", input[i]->name,
-              j * bin_size, (j + 1) * bin_size,
-              0.0, input[i]->bins[j]);
+      write_entry(fp, input[i]->name, j * bin_size, (j + 1) * bin_size,
+                  0.0, input[i]->bins[j]);
     }
   }
   
@@ -173,21 +213,18 @@ int count_bam(char *samfilename, chrom_meta ***cmp, const size_t bin_size,
   samfile_t *fp;
   if ((fp = samopen(samfilename, "rb", 0)) == 0) {
     fprintf(stderr, "Failed to open BAM file %s\n", samfilename);
-    return 1;
+    return -1;
   }
   size_t cm_len = fp->header->n_targets;
-  chrom_meta **cm = malloc(sizeof(chrom_meta *) * cm_len);
+  chrom_meta **cm = calloc(cm_len, sizeof(chrom_meta *));
 
   int rval = init_bins(fp->header, cm, cm_len, bin_size, chromnames, nchroms);
   if (rval < 0) {
     fprintf(stderr, "error initializing bins ...\n");
     return -1;
   }
+  read_bam(fp, bin_size, cm, cm_len);
 
-  if (read_bam(fp, bin_size, cm, cm_len) != 0) {
-    fprintf(stderr, "Error reading bam file. Aborting ...\n");
-    return -1;
-  }
   samclose(fp);
   *cmp = cm;
   return cm_len;
@@ -195,6 +232,9 @@ int count_bam(char *samfilename, chrom_meta ***cmp, const size_t bin_size,
 
 int main(int argc, char *argv[])
 {
+  #ifdef DEBUG
+  fprintf(stderr, "debug mode on.\n");
+  #endif
   if (argc != 6) {
     fprintf(stderr, "Usage: %s <chromsize> <ip.bam> <input.bam> <bin-size> <output_file>\n", argv[0]);
     return 1;
@@ -221,7 +261,7 @@ int main(int argc, char *argv[])
   }
   chrom_meta **input;
   int input_len = count_bam(argv[3], &input, bin_size, chromnames, nchroms);
-  if (ip_len < 0) {
+  if (input_len < 0) {
     fprintf(stderr, "problems reading input file=%s\n", argv[3]);
     return 1;
   }    
