@@ -1,7 +1,7 @@
 TARGET = cabam
 LIBS = -lm -lbam -lz -lpthread
 CC = gcc
-CFLAGS = -Wall -std=c99 -O2 # -DDEBUG -g
+CFLAGS = -Wall -std=c99 -O2 #-DDEBUG -g
 INCLUDES = -I samtools
 
 .PHONY: clean all default
@@ -18,7 +18,7 @@ all: default
 # $(TARGET): $(OBJECTS)
 # 	$(CC) $(OBJECTS) $(INCLUDES) -Wall $(LIBS) -o $@
 
-$(TARGET): samtools/libbam.a read_bam.c
+$(TARGET): samtools/libbam.a read_bam.c Makefile 
 	$(CC) $(CFLAGS) -Lsamtools $(INCLUDES) read_bam.c $(LIBS) -o $@
 
 clean:

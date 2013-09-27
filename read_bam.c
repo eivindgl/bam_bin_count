@@ -5,6 +5,7 @@
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define MAX(a,b) (((a)>(b))?(a):(b))
+#define MB(x)   ((x) << 20)
 
 #define MAX_CHROMS 100
 #define BUF_SIZE 1024
@@ -71,6 +72,9 @@ int init_bins(const bam_header_t *h, chrom_meta **cm, const size_t cm_len, const
               chrom_size *chromnames, int nchroms) {
   
   int i;
+  #ifdef DEBUG
+  static double tot_mem = 0;
+  #endif
   for (i=0; i < h->n_targets; i++) {
     assert(i<cm_len);
     const chrom_size *cur = find_chrom(chromnames, nchroms, h->target_name[i]);
@@ -82,6 +86,11 @@ int init_bins(const bam_header_t *h, chrom_meta **cm, const size_t cm_len, const
       if (cur->len % bin_size != 0) {
         cm[i]->len++;
       }
+#ifdef DEBUG
+      double mem = ((double)sizeof(double) * cm[i]->len) / MB(1);
+      tot_mem += mem;
+      fprintf(stderr, "allocating %.2fMB (%.2fMB total).\n", mem, tot_mem);
+#endif
       cm[i]->bins = calloc(sizeof(double), cm[i]->len);
       strncpy(cm[i]->name, cur->name, BUF_SIZE);
     }
